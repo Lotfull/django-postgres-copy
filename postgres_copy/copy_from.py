@@ -33,7 +33,8 @@ class CopyMapping(object):
         force_null=None,
         encoding=None,
         ignore_conflicts=False,
-        static_mapping=None
+        static_mapping=None,
+        replace=None
     ):
         # Set the required arguments
         self.model = model
@@ -58,6 +59,7 @@ class CopyMapping(object):
         self.encoding = encoding
         self.supports_ignore_conflicts = True
         self.ignore_conflicts = ignore_conflicts
+        self.replace = replace
         if static_mapping is not None:
             self.static_mapping = OrderedDict(static_mapping)
         else:
@@ -392,6 +394,14 @@ class CopyMapping(object):
         options['temp_fields'] = ", ".join(temp_fields)
 
         # Pass it out
+        if self.replace:
+            sql = f"""
+                BEGIN;
+                TRUNCATE "%(model_table)s";
+                {sql}
+                COMMIT;
+            """
+
         return sql % options
 
     def pre_insert(self, cursor):
