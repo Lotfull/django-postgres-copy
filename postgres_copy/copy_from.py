@@ -230,6 +230,17 @@ class CopyMapping(object):
         # Mash together the SQL and pass it out
         return sql % options
 
+    def prep_create_for_replace(self):
+        """
+        Creates a CREATE statement that makes a new table for replacing current.
+
+        Returns SQL that can be run.
+        """
+        model_table = self.model._meta.db_table
+        sql = f"""CREATE TABLE {self.temp_table_name} (LIKE {model_table} INCLUDING DEFAULTS);"""
+
+        return sql
+
     def create(self, cursor):
         """
         Generate and run create sql for the temp table.
@@ -240,7 +251,10 @@ class CopyMapping(object):
         """
         logger.debug("Running CREATE command")
         self.drop(cursor)
-        create_sql = self.prep_create()
+        if self.replace:
+            create_sql = self.prep_create_for_replace()
+        else:
+            create_sql = self.prep_create()
         logger.debug(create_sql)
         cursor.execute(create_sql)
 
@@ -399,24 +413,21 @@ class CopyMapping(object):
 
     def prep_drop_rename(self):
         """
-        Creates a INSERT statement that reorders and cleans up
-        the fields from the temporary table for insertion into the
-        Django model.
+        Creates a statement that releases old table's id sequence, drops old table
+        and renames new table with old table's name.
 
         Returns SQL that can be run.
         """
-        sql = """
+        model_table = self.model._meta.db_table
+        sql = f"""
             BEGIN;
-            DROP TABLE %(model_table)s;
-            ALTER TABLE %(temp_table)s RENAME TO %(model_table)s;
+            ALTER SEQUENCE {model_table}_id_seq owned by none;
+            DROP TABLE {model_table};
+            ALTER TABLE {self.temp_table_name} RENAME TO {model_table};
             COMMIT;
         """
-        options = dict(
-            model_table=self.model._meta.db_table,
-            temp_table=self.temp_table_name,
-        )
 
-        return sql % options
+        return sql
 
     def pre_insert(self, cursor):
         pass
