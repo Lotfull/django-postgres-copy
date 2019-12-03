@@ -120,6 +120,8 @@ class CopyMapping(object):
         with self.conn.cursor() as c:
             self.create(c)
             self.copy(c)
+            if self.replace:
+                return self.drop_rename(c)
             insert_count = self.insert(c)
             self.drop(c)
 
@@ -393,19 +395,52 @@ class CopyMapping(object):
         # Join it all together
         options['temp_fields'] = ", ".join(temp_fields)
 
-        # Pass it out
-        if self.replace:
-            sql = f"""
-                BEGIN;
-                TRUNCATE "%(model_table)s";
-                {sql}
-                COMMIT;
-            """
+        return sql % options
+
+    def prep_drop_rename(self):
+        """
+        Creates a INSERT statement that reorders and cleans up
+        the fields from the temporary table for insertion into the
+        Django model.
+
+        Returns SQL that can be run.
+        """
+        sql = """
+            BEGIN;
+            DROP TABLE %(model_table)s;
+            ALTER TABLE %(temp_table)s RENAME TO %(model_table)s;
+            COMMIT;
+        """
+        options = dict(
+            model_table=self.model._meta.db_table,
+            temp_table=self.temp_table_name,
+        )
 
         return sql % options
 
     def pre_insert(self, cursor):
         pass
+
+    def drop_rename(self, cursor):
+        """
+        Generate and run the INSERT command to move data from the temp table
+        to the concrete table.
+
+        Calls `self.pre_copy(cursor)` and `self.post_copy(cursor)` respectively
+        before and after running copy
+
+        returns: the count of rows inserted
+
+        cursor:
+          A cursor object on the db
+        """
+        logger.debug("Running DROP ALTER command")
+        drop_rename_sql = self.prep_drop_rename()
+        logger.debug(drop_rename_sql)
+        cursor.execute(drop_rename_sql)
+        logger.debug("Table replaced by temp")
+
+        return True
 
     def insert(self, cursor):
         """
